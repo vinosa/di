@@ -1,0 +1,16 @@
+{
+    "name": "vinosa/di",
+    "description": "Dependency Injection",
+    "authors": [
+        {
+            "name": "vinosa",
+            "email": "alex.and.re@live.fr"
+        }
+    ],
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Vinosa\\Di\\":        "src"
+        }
+    }
+}
