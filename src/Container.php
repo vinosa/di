@@ -23,8 +23,12 @@ namespace Vinosa\Di ;
  */
 class Container
 {
-    protected $entries = array();
-    protected $interfaces = array();
+    
+    protected $entries = [];
+    protected $interfaces = [];
+    protected $declaringClassParameters = [];
+    protected $typedParameters = [] ;
+    protected $untypedParameters = [] ;
           
     public function get($id)
     {
@@ -34,7 +38,7 @@ class Container
             
         }
                
-        throw new ContainerException("not found : ". $id ) ;
+        throw new ContainerException("no entry : ". $id ) ;
     }
     
     public function has($id)
@@ -42,58 +46,69 @@ class Container
         return isset( $this->entries[$id] ) ;
     }
     
-    
-    public function bind($class, $declaringClass = "",  $value)
+    public function resolve($class, \ReflectionClass $declaringClass = null )
     {
-        $id = $class  . $declaringClass;
         
-        $this->entries[$id] = $value;
-    }
-    
-    public function resolve($class, $declaringClass = "" )
-    {
-        $id = $class  . $declaringClass;
-        
-        if( $this->has( $id ) ){
+        $class = $this->getInterface( $class, $declaringClass ) ; // in case we bound this class or interface to another
+                     
+        if( $this->has( $class ) ){
             
-            return $this->get( $id ) ;
+            return $this->get( $class ) ; // class was bound to a value
         }
         
-        $reflectionClass = new \ReflectionClass( $class );
-                
-        $new = $this->newInstance( $reflectionClass ) ;
-                          
-        $this->bind($class, $declaringClass, $new);
-         
-        return $new ;
+        return $this->newInstance( new \ReflectionClass( $class ), $declaringClass ) ;
     }
     
     
-    protected function resolveParameter(\ReflectionParameter $parameter)
+    public function bind($class, $value)
+    {       
+        $this->entries[$class] = $value;
+        
+    }
+    
+    public function bindTypedParameter($parameterClass, $declaringClass, $value)
     {
-               
-        $class = $parameter->getClass();
+        $this->typedParameters[$parameterClass . $declaringClass] = $value ;
+    }
+    
+    public function bindUntypedParameter($parameterName, $declaringClass, $value)
+    {
+        $this->untypedParameters[$parameterName . $declaringClass] = $value ;
+    }
+    
+    public function bindInterface($interface , $class , $declaringClass = "" )
+    {
         
-        $declaringClass = $parameter->getDeclaringClass()->getName() ;
+        $this->interfaces[ $interface . $declaringClass ] = $class ;
         
-        if( !is_null( $class ) ){
+    }
+    
+    
+    public function resolveTypedParameter( \ReflectionParameter $parameter )
+    {
+        
+        $value = $this->findBoundParameter($parameter, $parameter->getDeclaringClass() );
+        
+        if($value != false){
             
-            $className = $class->getName() ;
-                
-            if($this->getInterface($className) != false){
-                
-                $className = $this->getInterface($className) ;
-                
-            }
-                               
-            return $this->resolve( $className, $declaringClass ) ;
-           
+            return $value ;
         }
-        
-        if( $this->has($declaringClass . $parameter->getName() ) ){
+                                 
+        return $this->resolve( $parameter->getClass()->getName() ,  $parameter->getDeclaringClass() );
+    }
+                
+    public function resolveUntypedParameter(\ReflectionParameter $parameter, \ReflectionClass $declaringClass = null )
+    {
+        if( !is_null($declaringClass) && $this->boundToDeclaringClass( $parameter ) ){
             
-            return $this->get($declaringClass . $parameter->getName() ) ;
+            return $declaringClass->getName() ; //  if the parameter value was bound to parent declaring class
+        }
+                     
+        $value = $this->findBoundParameter($parameter, $parameter->getDeclaringClass() );
+       
+        if($value != false){
             
+            return $value ;
         }
         
         try{
@@ -108,21 +123,53 @@ class Container
         
     }
     
-    protected function newInstance(\ReflectionClass $reflectionClass)
+    public function getInterface( $interface, \ReflectionClass $declaringClass = null )
     {
-        $class = $reflectionClass->getName();
-        
-        $constructor = $reflectionClass->getConstructor();
-        
-        if(!is_null($constructor)){
-
-            return $this->newInstanceWithConstructor( $reflectionClass );
+                
+        if(!is_null($declaringClass) && isset($this->interfaces[$interface . $declaringClass->getName() ] ) ){
             
+            return $this->interfaces[ $interface . $declaringClass->getName() ] ;   // if bind(interface, class, declaringClass) 
+                
         }
         
-        $new = new $class ;
-             
-        if($reflectionClass->hasMethod("setContainer") ){
+        if(isset($this->interfaces[$interface])){
+            
+            return $this->interfaces[$interface] ;                                  // if bind(interface, class) 
+                
+        }
+                    
+        return $interface ; // return the same class
+        
+    }
+        
+    
+    protected function resolveParameter(\ReflectionParameter $parameter, \ReflectionClass $reflectionDeclaringClass = null)
+    {
+                                                                     
+        if( !is_null( $parameter->getClass() ) ){                                               // if the parameter is a Class or an Interface
+                              
+            return $this->resolveTypedParameter( $parameter ) ;
+           
+        }
+        
+        return $this->resolveUntypedParameter($parameter, $reflectionDeclaringClass) ;
+                      
+    }
+    
+    protected function newInstance(\ReflectionClass $reflectionClass, \ReflectionClass $declaringClass = null)
+    {
+        
+        if( !is_null( $reflectionClass->getConstructor() ) ){
+
+            $new = $this->newInstanceWithConstructor( $reflectionClass, $declaringClass );
+            
+        }
+        else{
+            
+            $new = $reflectionClass->newInstance();
+        }
+                     
+        if( $reflectionClass->hasMethod("setContainer") ){
              
             $new->setContainer( $this );
         }
@@ -130,46 +177,65 @@ class Container
         return $new ;
     }
     
-    protected function newInstanceWithConstructor(\ReflectionClass $reflectionClass)
+    protected function newInstanceWithConstructor(\ReflectionClass $reflectionClass, \ReflectionClass $declaringClass = null)
     {
+              
+        $parameters = [] ;
         
-        $constructor = $reflectionClass->getConstructor();
-        
-        $reflectionParameters = $constructor->getParameters(); 
-         
-        $class = $reflectionClass->getName();
-        
-        $parameters = array();
-        
-        foreach($reflectionParameters as $parameter){                
+        foreach($reflectionClass->getConstructor()->getParameters() as $parameter){                
                             
-            $parameters[] = $this->resolveParameter($parameter);
+            $parameters[] = $this->resolveParameter($parameter , $declaringClass );
                                
         }              
-
-         $new = $reflectionClass->newInstanceArgs( $parameters );
-         
-         if($reflectionClass->hasMethod("setContainer") ){
-             
-             $new->setContainer( $this );
-         }
-                
-         return $new ;
+               
+        return $reflectionClass->newInstanceArgs( $parameters ) ;
+    }
+     
+    
+    public function bindToDeclaringClass( $parameter, $declaringClass)
+    {
+        $this->declaringClassParameters[$declaringClass . $parameter] = true ;
     }
     
-    public function bindInterface($interface , $class)
+    protected function boundToDeclaringClass(\ReflectionParameter $parameter)
     {
-        $this->interfaces[ $interface ] = $class ;
-    }
-    
-    public function getInterface($interface, $defaultValue = false)
-    {
-        if(isset($this->interfaces[$interface])){
+        
+        if(isset($this->declaringClassParameters[ $parameter->getDeclaringClass()->getName() . $parameter->getName() ] ) ){
             
-            return $this->interfaces[$interface] ;
-                
+            return true;
+            
+        }
+
+        return false;
+    }
+    
+    protected function findBoundParameter( \ReflectionParameter $parameter, \ReflectionClass $class )
+    {
+        $key = $parameter->getName() . $class->getName() ; // bound by name ?
+        
+        if( isset($this->untypedParameters[$key]) ){
+            
+            return $this->untypedParameters[$key] ;
         }
         
-        return $defaultValue ;
+        if($parameter->getClass() != false){
+            
+            $key = $parameter->getClass()->getName() . $class->getName() ;   // bound by class/interface ?
+             
+            if( isset($this->typedParameters[$key]) ){
+            
+                return $this->typedParameters[$key] ;
+            }
+             
+        }
+                 
+        if( !$class->getParentClass() ){
+            
+            return false ; // all parent classes have been looked and no one has the parameter bound
+        }
+        
+        return $this->findBoundParameter($parameter, $class->getParentClass() ) ; // move to the parent
     }
+    
+    
 }
