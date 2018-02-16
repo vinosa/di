@@ -1,7 +1,7 @@
 <?php
 
 /*
- * Copyright 2017 vinogradov.
+ * Copyright 2018 vinogradov.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,11 +19,11 @@
 namespace Vinosa\Di;
 
 /**
- * Description of ObjectConsumer
+ * Description of ContainerInjectableTrait
  *
- * @author vinosa
+ * @author vinogradov
  */
-class ObjectConsumer
+class ContainerInjectableTrait
 {
     protected $container ;
        

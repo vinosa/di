@@ -66,12 +66,12 @@ class Container
         
     }
     
-    public function bindTypedParameter($parameterClass, $declaringClass, $value)
+    public function bindParameterByType($parameterClass, $declaringClass, $value)
     {
         $this->typedParameters[$parameterClass . $declaringClass] = $value ;
     }
     
-    public function bindUntypedParameter($parameterName, $declaringClass, $value)
+    public function bindParameterByName($parameterName, $declaringClass, $value)
     {
         $this->untypedParameters[$parameterName . $declaringClass] = $value ;
     }
