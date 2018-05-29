@@ -1,7 +1,7 @@
 <?php
 
 /*
- * Copyright 2017 vinogradov.
+ * Copyright 2017 vinosa.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ namespace Vinosa\Di ;
  *
  * @author vinosa
  */
-class Container
+class Container implements \Psr\Container\ContainerInterface
 {
     
     protected $entries = [];
@@ -29,6 +29,13 @@ class Container
     protected $declaringClassParameters = [];
     protected $typedParameters = [] ;
     protected $untypedParameters = [] ;
+    
+    /**
+     * gets an existing entry, if not tries lazy loading
+     * @param type $id
+     * @return type
+     * @throws NotFoundException
+     */
           
     public function get($id)
     {
@@ -37,8 +44,13 @@ class Container
             return $this->entries[$id] ;
             
         }
+        
+        if(class_exists($id)){
+            
+            return $this->resolve($id) ;
+        }
                
-        throw new ContainerException("no entry : ". $id ) ;
+        throw new NotFoundException("no entry : ". $id ) ;
     }
     
     public function has($id)
@@ -46,11 +58,16 @@ class Container
         return isset( $this->entries[$id] ) ;
     }
     
+    /**
+     * lazy loads class
+     * @param type $class
+     * @param \ReflectionClass $declaringClass
+     * @return type
+     */
+    
     public function resolve($class, \ReflectionClass $declaringClass = null )
     {
         
-        $class = $this->getInterface( $class, $declaringClass ) ; // in case we bound this class or interface to another
-                     
         if( $this->has( $class ) ){
             
             return $this->get( $class ) ; // class was bound to a value
@@ -65,26 +82,29 @@ class Container
         $this->entries[$class] = $value;
         
     }
-    
-    public function bindParameterByType($parameterClass, $declaringClass, $value)
+    /**
+     * 
+     * @param type $declaringClass Declaring class
+     * @param type $parameterClass Parameter class or interface
+     * @param type $value Parameter value
+     */
+    public function bindConstructorParameterByType($declaringClass, $parameterClass, $value)
     {
         $this->typedParameters[$parameterClass . $declaringClass] = $value ;
     }
-    
-    public function bindParameterByName($parameterName, $declaringClass, $value)
+    /**
+     * 
+     * @param type $declaringClass Declaring class
+     * @param type $parameterName Parameter name
+     * @param type $value Parameter value
+     */
+    public function bindConstructorParameterByName($declaringClass, $parameterName, $value)
     {
         $this->untypedParameters[$parameterName . $declaringClass] = $value ;
     }
     
-    public function bindInterface($interface , $class , $declaringClass = "" )
-    {
-        
-        $this->interfaces[ $interface . $declaringClass ] = $class ;
-        
-    }
     
-    
-    public function resolveTypedParameter( \ReflectionParameter $parameter )
+    protected function resolveTypedParameter( \ReflectionParameter $parameter )
     {
         
         $value = $this->findBoundParameter($parameter, $parameter->getDeclaringClass() );
@@ -97,13 +117,9 @@ class Container
         return $this->resolve( $parameter->getClass()->getName() ,  $parameter->getDeclaringClass() );
     }
                 
-    public function resolveUntypedParameter(\ReflectionParameter $parameter, \ReflectionClass $declaringClass = null )
+    protected function resolveUntypedParameter(\ReflectionParameter $parameter, \ReflectionClass $declaringClass = null )
     {
-        if( !is_null($declaringClass) && $this->boundToDeclaringClass( $parameter ) ){
-            
-            return $declaringClass->getName() ; //  if the parameter value was bound to parent declaring class
-        }
-                     
+                
         $value = $this->findBoundParameter($parameter, $parameter->getDeclaringClass() );
        
         if($value != false){
@@ -123,25 +139,6 @@ class Container
         
     }
     
-    public function getInterface( $interface, \ReflectionClass $declaringClass = null )
-    {
-                
-        if(!is_null($declaringClass) && isset($this->interfaces[$interface . $declaringClass->getName() ] ) ){
-            
-            return $this->interfaces[ $interface . $declaringClass->getName() ] ;   // if bind(interface, class, declaringClass) 
-                
-        }
-        
-        if(isset($this->interfaces[$interface])){
-            
-            return $this->interfaces[$interface] ;                                  // if bind(interface, class) 
-                
-        }
-                    
-        return $interface ; // return the same class
-        
-    }
-        
     
     protected function resolveParameter(\ReflectionParameter $parameter, \ReflectionClass $reflectionDeclaringClass = null)
     {
@@ -169,11 +166,7 @@ class Container
             $new = $reflectionClass->newInstance();
         }
                      
-        if( $reflectionClass->hasMethod("setContainer") ){
-             
-            $new->setContainer( $this );
-        }
-                             
+                                   
         return $new ;
     }
     
@@ -191,23 +184,6 @@ class Container
         return $reflectionClass->newInstanceArgs( $parameters ) ;
     }
      
-    
-    public function bindToDeclaringClass( $parameter, $declaringClass)
-    {
-        $this->declaringClassParameters[$declaringClass . $parameter] = true ;
-    }
-    
-    protected function boundToDeclaringClass(\ReflectionParameter $parameter)
-    {
-        
-        if(isset($this->declaringClassParameters[ $parameter->getDeclaringClass()->getName() . $parameter->getName() ] ) ){
-            
-            return true;
-            
-        }
-
-        return false;
-    }
     
     protected function findBoundParameter( \ReflectionParameter $parameter, \ReflectionClass $class )
     {
@@ -237,5 +213,9 @@ class Container
         return $this->findBoundParameter($parameter, $class->getParentClass() ) ; // move to the parent
     }
     
+    
+}
+class NotFoundException extends \Exception implements \Psr\Container\NotFoundExceptionInterface
+{
     
 }
