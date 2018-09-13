@@ -1,19 +1,27 @@
 <?php
 
 /*
- * Copyright 2017 vinosa.
+ * The MIT License
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Copyright 2018 vinogradov.
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
  */
 namespace Vinosa\Di ;
 /**
@@ -23,197 +31,87 @@ namespace Vinosa\Di ;
  */
 class Container implements \Psr\Container\ContainerInterface
 {
-    
     protected $entries = [];
-    protected $interfaces = [];
-    protected $declaringClassParameters = [];
     protected $typedParameters = [] ;
-    protected $untypedParameters = [] ;
-    
+    protected $untypedParameters = [] ;          
     /**
      * gets an existing entry, if not tries lazy loading
      * @param type $id
      * @return type
      * @throws NotFoundException
-     */
-          
+     */          
     public function get($id)
     {
-        if( $this->has( $id ) ){
-            
-            return $this->entries[$id] ;
-            
-        }
-        
-        if(class_exists($id)){
-            
-            return $this->resolve($id) ;
-        }
-               
+        if( $this->has( $id ) ){            
+            return $this->entries[$id] ;            
+        }        
+        if(class_exists($id)){            
+            return $this->newInstance( new \ReflectionClass( $id ) ) ;
+        }               
         throw new NotFoundException("no entry : ". $id ) ;
     }
     
-    public function has($id)
+    public function has($id): bool
     {
         return isset( $this->entries[$id] ) ;
     }
     
-    /**
-     * lazy loads class
-     * @param type $class
-     * @param \ReflectionClass $declaringClass
-     * @return type
-     */
-    
-    public function resolve($class, \ReflectionClass $declaringClass = null )
-    {
-        
-        if( $this->has( $class ) ){
-            
-            return $this->get( $class ) ; // class was bound to a value
-        }
-        
-        return $this->newInstance( new \ReflectionClass( $class ), $declaringClass ) ;
-    }
-    
-    
     public function bind($class, $value)
     {       
-        $this->entries[$class] = $value;
-        
-    }
-    /**
-     * 
-     * @param type $declaringClass Declaring class
-     * @param type $parameterClass Parameter class or interface
-     * @param type $value Parameter value
-     */
-    public function bindConstructorParameterByType($declaringClass, $parameterClass, $value)
-    {
-        $this->typedParameters[$parameterClass . $declaringClass] = $value ;
-    }
-    /**
-     * 
-     * @param type $declaringClass Declaring class
-     * @param type $parameterName Parameter name
-     * @param type $value Parameter value
-     */
-    public function bindConstructorParameterByName($declaringClass, $parameterName, $value)
-    {
-        $this->untypedParameters[$parameterName . $declaringClass] = $value ;
+        $this->entries[$class] = $value;        
     }
     
-    
-    protected function resolveTypedParameter( \ReflectionParameter $parameter )
+    public function bindParameterByType(string $type, string $declaringClass, $value)
     {
-        
-        $value = $this->findBoundParameter($parameter, $parameter->getDeclaringClass() );
-        
-        if($value != false){
-            
-            return $value ;
-        }
-                                 
-        return $this->resolve( $parameter->getClass()->getName() ,  $parameter->getDeclaringClass() );
+        $this->typedParameters[$type . $declaringClass] = $value ;
     }
-                
-    protected function resolveUntypedParameter(\ReflectionParameter $parameter, \ReflectionClass $declaringClass = null )
+    
+    public function bindParameterByName(string $name, string $declaringClass, $value)
     {
-                
-        $value = $this->findBoundParameter($parameter, $parameter->getDeclaringClass() );
-       
-        if($value != false){
-            
-            return $value ;
+        $this->untypedParameters[$name . $declaringClass] = $value ;
+    }
+      
+    protected function resolveParameter(\ReflectionParameter $parameter)
+    { 
+        if($this->has( $parameter->getName() . $parameter->getDeclaringClass()->getName()) ){
+            return $this->get( $parameter->getName() . $parameter->getDeclaringClass()->getName()) ;
         }
-        
-        try{
-            
-            return $parameter->getDefaultValue();
-            
+        if( !is_null( $parameter->getClass() ) ){          
+            if($this->has( $parameter->getClass()->getName() . $parameter->getDeclaringClass()->getName() ) ){
+                return $this->get( $parameter->getClass()->getName() . $parameter->getDeclaringClass()->getName() ) ;
+            }
+            if($this->has( $parameter->getClass()->getName() ) ){
+                return $this->get( $parameter->getClass()->getName() );
+            }
+            return $this->newInstance( $parameter->getClass() ) ;         
+        } 
+        try{            
+            return $parameter->getDefaultValue();            
         } catch (\ReflectionException $ex) {
-
-        }
-        
-        return null ;
-        
+        }        
+        return null ;                 
     }
     
-    
-    protected function resolveParameter(\ReflectionParameter $parameter, \ReflectionClass $reflectionDeclaringClass = null)
+    protected function newInstance(\ReflectionClass $reflectionClass)
     {
-                                                                     
-        if( !is_null( $parameter->getClass() ) ){                                               // if the parameter is a Class or an Interface
-                              
-            return $this->resolveTypedParameter( $parameter ) ;
-           
-        }
-        
-        return $this->resolveUntypedParameter($parameter, $reflectionDeclaringClass) ;
-                      
-    }
-    
-    protected function newInstance(\ReflectionClass $reflectionClass, \ReflectionClass $declaringClass = null)
-    {
-        
         if( !is_null( $reflectionClass->getConstructor() ) ){
-
-            $new = $this->newInstanceWithConstructor( $reflectionClass, $declaringClass );
-            
+            $new = $this->newInstanceWithConstructor( $reflectionClass);           
         }
-        else{
-            
+        else{            
             $new = $reflectionClass->newInstance();
-        }
-                     
-                                   
+        }                                             
         return $new ;
     }
     
-    protected function newInstanceWithConstructor(\ReflectionClass $reflectionClass, \ReflectionClass $declaringClass = null)
-    {
-              
-        $parameters = [] ;
-        
-        foreach($reflectionClass->getConstructor()->getParameters() as $parameter){                
-                            
-            $parameters[] = $this->resolveParameter($parameter , $declaringClass );
-                               
-        }              
-               
-        return $reflectionClass->newInstanceArgs( $parameters ) ;
+    protected function newInstanceWithConstructor(\ReflectionClass $reflectionClass)
+    {             
+        $parameters = [] ;        
+        foreach($reflectionClass->getConstructor()->getParameters() as $parameter){                                           
+            $parameters[] = $this->resolveParameter($parameter);                               
+        }                             
+        return $reflectionClass->newInstanceArgs($parameters) ;
     }
-     
-    
-    protected function findBoundParameter( \ReflectionParameter $parameter, \ReflectionClass $class )
-    {
-        $key = $parameter->getName() . $class->getName() ; // bound by name ?
         
-        if( isset($this->untypedParameters[$key]) ){
-            
-            return $this->untypedParameters[$key] ;
-        }
-        
-        if($parameter->getClass() != false){
-            
-            $key = $parameter->getClass()->getName() . $class->getName() ;   // bound by class/interface ?
-             
-            if( isset($this->typedParameters[$key]) ){
-            
-                return $this->typedParameters[$key] ;
-            }
-             
-        }
-                 
-        if( !$class->getParentClass() ){
-            
-            return false ; // all parent classes have been looked and no one has the parameter bound
-        }
-        
-        return $this->findBoundParameter($parameter, $class->getParentClass() ) ; // move to the parent
-    }
-    
-    
 }
 class NotFoundException extends \Exception implements \Psr\Container\NotFoundExceptionInterface
 {
